@@ -32,6 +32,7 @@ int GetProfile(const TString rootFile){
 #else
   int GetProfile(const TString rootFile,Int_t energy_m,Int_t energy_M,Int_t width,Int_t ty);
   int GetProfilePave(const TString rootFile,const TString onepixProfile,Int_t energy_m,Int_t energy_M,Int_t width,Int_t ty);
+  int GetOnePixProfile(const TString rootFile,Int_t energy_m,Int_t energy_M,Int_t ty);
 
 int main(int argc, char* argv[]){
 
@@ -44,6 +45,7 @@ int main(int argc, char* argv[]){
     ("onepix,o",value<std::string>(),"One Pixel Period File")
     //("subpix,s","Use Subpix Event List")
     //("onepix,o","Use Onepix Event List")
+    ("gopp","Make One Pix Profile")
     ("type,t",value<int>(),"Event Type (1:Single & Side Double, 2:Side Double)")
     ("enem,m",value<int>()->default_value(50),"Couning Energy Minimum (PH)")
     ("eneM,M",value<int>()->default_value(100),"Couning Energy Maximum (PH)")
@@ -56,7 +58,7 @@ int main(int argc, char* argv[]){
     std::cout << "Usage  :./GetProfile -f <Event List Root File> -s (OR -o) -m <Energy Min(PH)> -M <Energy Max(PH)> -w <Width of Profile Range>" << std::endl;
     std::cout << opt << std::endl;
     return 0;
-  }else{
+  }else if(vm.count("onepix")){
     dataFile = vm["file"].as<std::string>();
     onepixFile  = vm["onepix"].as<std::string>();
     type  = vm["type"].as<int>();
@@ -65,10 +67,21 @@ int main(int argc, char* argv[]){
     w  = vm["width"].as<int>();
     std::cout << "dataFile is "<<dataFile<<std::endl;
     //    if(vm.count("subpix")){flag=1}
+  }else{
+    dataFile = vm["file"].as<std::string>();
+    type  = vm["type"].as<int>();
+    enem  = vm["enem"].as<int>();
+    eneM  = vm["eneM"].as<int>();
+    w  = vm["width"].as<int>();
+    std::cout << "dataFile is "<<dataFile<<std::endl;
   }
   
   if( !vm.count("onepix") ){
-    GetProfile(dataFile,enem,eneM,w,type);
+    if( !vm.count("gopp")){
+	GetProfile(dataFile,enem,eneM,w,type);
+      }else{
+	GetOnePixProfile(dataFile,enem,eneM,type);
+      }
   }else{
     GetProfilePave(dataFile,onepixFile,enem,eneM,w,type);
   }    
@@ -114,10 +127,10 @@ int main(int argc, char* argv[]){
   Int_t xx_M = 71*cos(rad)-71*sin(rad)+143*sin(rad)+60;
   Int_t yy_m;
   Int_t yy_M;
-Int_t count[2048] = {};
-TString filename;
-if(ty==1){filename="profileSingleSideDouble.txt";}
-if(ty==2){filename="profileSideDouble.txt";}
+  Int_t count[2048] = {};
+  TString filename;
+  if(ty==1){filename="profileSingleSideDouble.txt";}
+  if(ty==2){filename="profileSideDouble.txt";}
 
   if(width%2==0){
     wh=width/2;
@@ -282,6 +295,77 @@ if(ty==2){filename="profileSideDouble.txt";}
   return 0;
 }
 
+int GetOnePixProfile(const TString rootFile,Int_t energy_m,Int_t energy_M,Int_t ty)
+ {
+  if(!rootFile){
+    std::cerr<<"Usage: GetOnePixProfile(root file name)"<<std::endl;
+    return 0;
+  }
+  std::cout<<"rootFile name is "<<rootFile<<std::endl;
+  TFile *f = new TFile(rootFile,"read");
+  if(!f){
+    std::cerr<<"Error: no such file." << std::endl;
+    return 0;
+  }
+  std::cout<<"(UU)1\n";
+  
+  TTree *str=(TTree*)f->Get("tree_subpix");
+  Double_t        sra;
+  Double_t        sca;
+  Int_t        stype;
+  Float_t         ph_merge;
+  TBranch        *b_sra;
+  TBranch        *b_sca;
+  TBranch        *b_stype;
+  TBranch        *b_ph_merge;
+  str->SetBranchAddress("sca",&sca,&b_sca);
+  str->SetBranchAddress("sra",&sra,&b_sra);
+  str->SetBranchAddress("stype",&stype,&b_stype);
+  str->SetBranchAddress("ph_merge",&ph_merge,&b_ph_merge);
+  std::cout<<"(UU)2\n";
+
+  Int_t allEntries=str->GetEntries();
+  std::cout<<"(UU)\n";
+    
+  Int_t count[2048] = {};
+  TString filename;
+  if(ty==1){filename="onePixProfileSingleSideDouble.txt";}
+  if(ty==2){filename="onePixProfileSideDouble.txt";}
+  std::cout<<"(UU)\n";
+
+  for(int i=0; i<allEntries;i++){
+    str->GetEntry(i);
+    int m=0;
+    if(ty==1){
+      if(stype==10||stype==11||stype==22){
+	if(ph_merge >=energy_m && ph_merge<=energy_M){
+	  m=int(10*sra);// sraを切り捨て
+	  m=m%10;// count[]のindex作成
+	  count[m]++;
+	}
+      }
+    }if(ty==2){
+      if(stype==22){
+	if(ph_merge >=energy_m && ph_merge<=energy_M){
+	      m=int(10*sca);// xxを切り捨て
+	      m=m%10;// count[]のindex作成
+	      count[m]++;
+	}
+      }
+    }
+  }
+  std::ofstream fout(filename);
+  std::cout<<"make "<<filename<<std::endl;
+  fout << "sca"<< std::setw(10) <<"intensity"<< std::endl;
+  for(int m=0;m<10;m++){
+    count[m]=count[m]/(144*144);
+   fout << m << std::setw(10) << count[m] << std::endl;
+  }
+  fout.close();
+  delete str;
+  return 0;
+}
+ 
  void WriteLogFile(int enem,int eneM,int w,int type){
    std::ofstream f("log_GetProfile.txt");
    time_t t =time(NULL);
